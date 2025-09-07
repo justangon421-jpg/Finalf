@@ -1,0 +1,329 @@
+{
+  "data": {
+    "n_samples": 303,
+    "n_features": 23,
+    "feature_names": [
+      "Initial_Temperature",
+      "Final_Temperature",
+      "Initial_Speed",
+      "Final_Speed",
+      "Deceleration_Rate",
+      "Contact_Pressure",
+      "Braking_Time",
+      "Temp_Rise",
+      "Temp_Rise_Rate",
+      "Mean_Temp",
+      "Speed_Drop_kmh",
+      "Speed_Drop_ms",
+      "Mean_Speed_ms",
+      "Braking_Distance",
+      "Decel_ms2_src",
+      "Decel_ms2_kin",
+      "SpeedXDecel",
+      "Energy_Rel",
+      "Power_Rel",
+      "Pressure_Time",
+      "V1_over_V0",
+      "Tf_over_Ti",
+      "PT_over_Erel"
+    ]
+  },
+  "cv": {
+    "outer_splits": 5,
+    "inner_splits": 3,
+    "stratify_on_binned_y": true
+  },
+  "per_fold": [
+    {
+      "fold": 1,
+      "metrics": {
+        "SVR": {
+          "R2": 0.5719135417208799,
+          "RMSE": 1.1353328765556383,
+          "Pinball90": 0.4037502611887385
+        },
+        "HGB": {
+          "R2": 0.2662985259577264,
+          "RMSE": 1.4863365756217175,
+          "Pinball90": 0.4051571949611514
+        },
+        "XGB": {
+          "R2": 0.47487331169581337,
+          "RMSE": 1.257446494848239,
+          "Pinball90": 0.39760508929760147
+        },
+        "ENSEMBLE": {
+          "R2": 0.47487331169581337,
+          "RMSE": 1.257446494848239,
+          "Pinball90": 0.39760508929760147
+        }
+      },
+      "best_params": {
+        "SVR": {
+          "svr__gamma": 0.01,
+          "svr__epsilon": 0.05,
+          "svr__C": 100
+        },
+        "HGB": {
+          "min_samples_leaf": 20,
+          "max_leaf_nodes": 31,
+          "max_depth": 6,
+          "learning_rate": 0.05
+        },
+        "XGB": {
+          "subsample": 0.6,
+          "reg_lambda": 5.0,
+          "reg_alpha": 0.1,
+          "n_estimators": 400,
+          "max_depth": 3,
+          "learning_rate": 0.1,
+          "colsample_bytree": 1.0
+        }
+      },
+      "ensemble_weights": {
+        "SVR": 0.0,
+        "HGB": 0.0,
+        "XGB": 1.0
+      }
+    },
+    {
+      "fold": 2,
+      "metrics": {
+        "SVR": {
+          "R2": 0.26191134414274586,
+          "RMSE": 5.583640195343577,
+          "Pinball90": 1.0875137506743584
+        },
+        "HGB": {
+          "R2": 0.007666026954667005,
+          "RMSE": 6.474289121136613,
+          "Pinball90": 1.1468649712785992
+        },
+        "XGB": {
+          "R2": 0.2127764827009262,
+          "RMSE": 5.766498581942785,
+          "Pinball90": 1.0637495153089593
+        },
+        "ENSEMBLE": {
+          "R2": 0.2127764827009262,
+          "RMSE": 5.766498581942785,
+          "Pinball90": 1.0637495153089593
+        }
+      },
+      "best_params": {
+        "SVR": {
+          "svr__gamma": 0.01,
+          "svr__epsilon": 0.05,
+          "svr__C": 30
+        },
+        "HGB": {
+          "min_samples_leaf": 30,
+          "max_leaf_nodes": 15,
+          "max_depth": 10,
+          "learning_rate": 0.08
+        },
+        "XGB": {
+          "subsample": 0.6,
+          "reg_lambda": 10.0,
+          "reg_alpha": 0.0,
+          "n_estimators": 200,
+          "max_depth": 5,
+          "learning_rate": 0.1,
+          "colsample_bytree": 0.6
+        }
+      },
+      "ensemble_weights": {
+        "SVR": 0.0,
+        "HGB": 0.0,
+        "XGB": 1.0
+      }
+    },
+    {
+      "fold": 3,
+      "metrics": {
+        "SVR": {
+          "R2": 0.05851796380750418,
+          "RMSE": 1.915203050311803,
+          "Pinball90": 0.4740329975197866
+        },
+        "HGB": {
+          "R2": 0.047611555253379345,
+          "RMSE": 1.9262642500120304,
+          "Pinball90": 0.49903889946579433
+        },
+        "XGB": {
+          "R2": 0.31392366280314654,
+          "RMSE": 1.6349144268567357,
+          "Pinball90": 0.4354717198448118
+        },
+        "ENSEMBLE": {
+          "R2": 0.3125360989957393,
+          "RMSE": 1.6365668685085881,
+          "Pinball90": 0.43351007622402443
+        }
+      },
+      "best_params": {
+        "SVR": {
+          "svr__gamma": 0.03,
+          "svr__epsilon": 0.1,
+          "svr__C": 100
+        },
+        "HGB": {
+          "min_samples_leaf": 5,
+          "max_leaf_nodes": 15,
+          "max_depth": null,
+          "learning_rate": 0.03
+        },
+        "XGB": {
+          "subsample": 0.6,
+          "reg_lambda": 1.0,
+          "reg_alpha": 0.1,
+          "n_estimators": 200,
+          "max_depth": 3,
+          "learning_rate": 0.03,
+          "colsample_bytree": 0.6
+        }
+      },
+      "ensemble_weights": {
+        "SVR": 0.048080549766099816,
+        "HGB": 0.0,
+        "XGB": 0.9519194502339001
+      }
+    },
+    {
+      "fold": 4,
+      "metrics": {
+        "SVR": {
+          "R2": 0.3918536454926199,
+          "RMSE": 1.9385215632098294,
+          "Pinball90": 0.4670278390665386
+        },
+        "HGB": {
+          "R2": 0.11359668535246625,
+          "RMSE": 2.3403578513792342,
+          "Pinball90": 0.3859355468954989
+        },
+        "XGB": {
+          "R2": -1.248816282486089,
+          "RMSE": 3.7277224649082403,
+          "Pinball90": 0.3449249238354852
+        },
+        "ENSEMBLE": {
+          "R2": -1.248816282486089,
+          "RMSE": 3.7277224649082403,
+          "Pinball90": 0.3449249238354852
+        }
+      },
+      "best_params": {
+        "SVR": {
+          "svr__gamma": 0.03,
+          "svr__epsilon": 0.1,
+          "svr__C": 100
+        },
+        "HGB": {
+          "min_samples_leaf": 5,
+          "max_leaf_nodes": 15,
+          "max_depth": 10,
+          "learning_rate": 0.03
+        },
+        "XGB": {
+          "subsample": 0.6,
+          "reg_lambda": 1.0,
+          "reg_alpha": 0.0,
+          "n_estimators": 400,
+          "max_depth": 5,
+          "learning_rate": 0.03,
+          "colsample_bytree": 1.0
+        }
+      },
+      "ensemble_weights": {
+        "SVR": 0.0,
+        "HGB": 0.0,
+        "XGB": 1.0
+      }
+    },
+    {
+      "fold": 5,
+      "metrics": {
+        "SVR": {
+          "R2": 0.3645163349107199,
+          "RMSE": 2.401760094370727,
+          "Pinball90": 0.6002669299909745
+        },
+        "HGB": {
+          "R2": 0.1527622520347901,
+          "RMSE": 2.773192885975492,
+          "Pinball90": 0.5780529508084327
+        },
+        "XGB": {
+          "R2": 0.22585408888507053,
+          "RMSE": 2.65087250724486,
+          "Pinball90": 0.6320468901250205
+        },
+        "ENSEMBLE": {
+          "R2": 0.22585408888507053,
+          "RMSE": 2.65087250724486,
+          "Pinball90": 0.6320468901250205
+        }
+      },
+      "best_params": {
+        "SVR": {
+          "svr__gamma": 0.03,
+          "svr__epsilon": 0.2,
+          "svr__C": 10
+        },
+        "HGB": {
+          "min_samples_leaf": 20,
+          "max_leaf_nodes": 63,
+          "max_depth": null,
+          "learning_rate": 0.03
+        },
+        "XGB": {
+          "subsample": 1.0,
+          "reg_lambda": 5.0,
+          "reg_alpha": 0.0,
+          "n_estimators": 600,
+          "max_depth": 3,
+          "learning_rate": 0.05,
+          "colsample_bytree": 1.0
+        }
+      },
+      "ensemble_weights": {
+        "SVR": 0.0,
+        "HGB": 0.0,
+        "XGB": 1.0
+      }
+    }
+  ],
+  "summary_oof": {
+    "SVR": {
+      "R2": 0.32974256601489393,
+      "RMSE": 2.594891555958315,
+      "Pinball90": 0.6065183556880793
+    },
+    "HGB": {
+      "R2": 0.11758700911060582,
+      "RMSE": 3.000088136825018,
+      "Pinball90": 0.6030099126818953
+    },
+    "XGB": {
+      "R2": -0.004277747280226474,
+      "RMSE": 3.007490895160172,
+      "Pinball90": 0.5747596276823757
+    },
+    "ENSEMBLE": {
+      "R2": -0.00455526004170792,
+      "RMSE": 3.0078213834905427,
+      "Pinball90": 0.5743672989582181
+    }
+  },
+  "env": {
+    "has_xgboost": true,
+    "has_nnls": true
+  },
+  "tips_for_next_tuning": [
+    "若某些外层折 R^2 明显偏低，请把 run_feedback.json 中该折的各基模型指标发我，结合该折的样本规模/分箱情况微调 n_bins 或改为普通 KFold。",
+    "如 SVR 方差较大，可缩小 C/gamma 搜索范围或提升 ClipTransformer 截尾强度（如0.02/0.98）。",
+    "如树模型效果欠佳，可适度提高 max_leaf_nodes 或放宽 reg_lambda；注意仍保持 n_jobs=1 以避免并行冲突。"
+  ]
+}

@@ -1,0 +1,320 @@
+{
+  "feature_names": [
+    "Initial_Temperature",
+    "Final_Temperature",
+    "Initial_Speed",
+    "Final_Speed",
+    "Deceleration_Rate",
+    "Contact_Pressure",
+    "Braking_Time",
+    "Temp_Rise",
+    "Temp_Rise_Rate",
+    "Mean_Temp",
+    "Speed_Drop_kmh",
+    "Speed_Drop_ms",
+    "Mean_Speed_ms",
+    "Braking_Distance",
+    "Decel_ms2_src",
+    "Decel_ms2_kin",
+    "SpeedXDecel",
+    "Energy_Rel",
+    "Power_Rel",
+    "Pressure_Time",
+    "V1_over_V0",
+    "Tf_over_Ti",
+    "PT_over_Erel"
+  ],
+  "config": {
+    "random_state": 42,
+    "outer_folds": 5,
+    "inner_folds": 3,
+    "y_bins": 7,
+    "use_log1p_on_target": true
+  },
+  "cv_results": {
+    "fold_rows": [
+      {
+        "fold": 1,
+        "model": "SVR",
+        "r2": 0.7889095630765146,
+        "rmse": 1.1924030097382974,
+        "pinball90": 0.5471329916264126,
+        "best_params": {
+          "regressor__svr__gamma": 0.0035564803062231283,
+          "regressor__svr__epsilon": 0.0017433288221999873,
+          "regressor__svr__C": 471.486636345739
+        }
+      },
+      {
+        "fold": 1,
+        "model": "HGB",
+        "r2": 0.12482221421642048,
+        "rmse": 2.4279342800962347,
+        "pinball90": 0.5471329916264126,
+        "best_params": {
+          "hgb__min_samples_leaf": 15,
+          "hgb__max_iter": 500,
+          "hgb__learning_rate": 0.03
+        }
+      },
+      {
+        "fold": 1,
+        "model": "XGB",
+        "r2": -0.0783507741238707,
+        "rmse": 2.6950623150941384,
+        "pinball90": 0.5471329916264126,
+        "best_params": {
+          "xgb__subsample": 1.0,
+          "xgb__reg_lambda": 1.0,
+          "xgb__max_depth": 4,
+          "xgb__learning_rate": 0.03,
+          "xgb__colsample_bytree": 0.8
+        }
+      },
+      {
+        "fold": 1,
+        "model": "ENS",
+        "r2": 0.7889095630765146,
+        "rmse": 1.1924030097382974,
+        "pinball90": 0.5471329916264126,
+        "best_params": {
+          "weights": {
+            "SVR": 1.0,
+            "HGB": 0.0,
+            "XGB": 0.0
+          }
+        }
+      },
+      {
+        "fold": 2,
+        "model": "SVR",
+        "r2": 0.5072480116211371,
+        "rmse": 1.119511047079746,
+        "pinball90": 0.23939631879533305,
+        "best_params": {
+          "regressor__svr__gamma": 0.010985411419875584,
+          "regressor__svr__epsilon": 0.20433597178569418,
+          "regressor__svr__C": 323.74575428176433
+        }
+      },
+      {
+        "fold": 2,
+        "model": "HGB",
+        "r2": 0.1641773320731037,
+        "rmse": 1.4580461261396582,
+        "pinball90": 0.23939631879533305,
+        "best_params": {
+          "hgb__min_samples_leaf": 5,
+          "hgb__max_iter": 400,
+          "hgb__learning_rate": 0.05
+        }
+      },
+      {
+        "fold": 2,
+        "model": "XGB",
+        "r2": 0.6020113963827083,
+        "rmse": 1.0061193668951562,
+        "pinball90": 0.23939631879533305,
+        "best_params": {
+          "xgb__subsample": 0.8,
+          "xgb__reg_lambda": 2.0,
+          "xgb__max_depth": 5,
+          "xgb__learning_rate": 0.03,
+          "xgb__colsample_bytree": 0.8
+        }
+      },
+      {
+        "fold": 2,
+        "model": "ENS",
+        "r2": 0.616534528750912,
+        "rmse": 0.9875914535345106,
+        "pinball90": 0.23939631879533305,
+        "best_params": {
+          "weights": {
+            "SVR": 0.30000000000000004,
+            "HGB": 0.0,
+            "XGB": 0.7
+          }
+        }
+      },
+      {
+        "fold": 3,
+        "model": "SVR",
+        "r2": 0.39506699239197174,
+        "rmse": 1.7398718784478737,
+        "pinball90": 0.4219867292238172,
+        "best_params": {
+          "regressor__svr__gamma": 0.00017575106248547912,
+          "regressor__svr__epsilon": 0.01610262027560939,
+          "regressor__svr__C": 390.6939937054613
+        }
+      },
+      {
+        "fold": 3,
+        "model": "HGB",
+        "r2": 0.22338822754603582,
+        "rmse": 1.9713585121827395,
+        "pinball90": 0.4219867292238172,
+        "best_params": {
+          "hgb__min_samples_leaf": 15,
+          "hgb__max_iter": 500,
+          "hgb__learning_rate": 0.03
+        }
+      },
+      {
+        "fold": 3,
+        "model": "XGB",
+        "r2": 0.368298657030822,
+        "rmse": 1.777949935678609,
+        "pinball90": 0.4219867292238172,
+        "best_params": {
+          "xgb__subsample": 0.7,
+          "xgb__reg_lambda": 1.0,
+          "xgb__max_depth": 4,
+          "xgb__learning_rate": 0.1,
+          "xgb__colsample_bytree": 0.7
+        }
+      },
+      {
+        "fold": 3,
+        "model": "ENS",
+        "r2": 0.4695756062587234,
+        "rmse": 1.6292036409826334,
+        "pinball90": 0.4219867292238172,
+        "best_params": {
+          "weights": {
+            "SVR": 0.5,
+            "HGB": 0.0,
+            "XGB": 0.5
+          }
+        }
+      },
+      {
+        "fold": 4,
+        "model": "SVR",
+        "r2": 0.49166401049567576,
+        "rmse": 1.8881578206463066,
+        "pinball90": 0.39368018586141323,
+        "best_params": {
+          "regressor__svr__gamma": 0.007543120063354615,
+          "regressor__svr__epsilon": 0.2807216203941176,
+          "regressor__svr__C": 7.543120063354615
+        }
+      },
+      {
+        "fold": 4,
+        "model": "HGB",
+        "r2": 0.30159698098621734,
+        "rmse": 2.213175819730494,
+        "pinball90": 0.39368018586141323,
+        "best_params": {
+          "hgb__min_samples_leaf": 15,
+          "hgb__max_iter": 500,
+          "hgb__learning_rate": 0.03
+        }
+      },
+      {
+        "fold": 4,
+        "model": "XGB",
+        "r2": -0.6241838390604793,
+        "rmse": 3.3750518957339963,
+        "pinball90": 0.39368018586141323,
+        "best_params": {
+          "xgb__subsample": 0.7,
+          "xgb__reg_lambda": 0.5,
+          "xgb__max_depth": 7,
+          "xgb__learning_rate": 0.07,
+          "xgb__colsample_bytree": 0.8
+        }
+      },
+      {
+        "fold": 4,
+        "model": "ENS",
+        "r2": 0.5443036534100953,
+        "rmse": 1.7877246811159613,
+        "pinball90": 0.39368018586141323,
+        "best_params": {
+          "weights": {
+            "SVR": 0.8,
+            "HGB": 0.0,
+            "XGB": 0.19999999999999996
+          }
+        }
+      },
+      {
+        "fold": 5,
+        "model": "SVR",
+        "r2": 0.2391581879772331,
+        "rmse": 5.745866076034589,
+        "pinball90": 1.2386274809293079,
+        "best_params": {
+          "regressor__svr__gamma": 0.0011513953993264468,
+          "regressor__svr__epsilon": 0.0004893900918477494,
+          "regressor__svr__C": 184.20699693267144
+        }
+      },
+      {
+        "fold": 5,
+        "model": "HGB",
+        "r2": -0.010654541311276855,
+        "rmse": 6.622312633964148,
+        "pinball90": 1.2386274809293079,
+        "best_params": {
+          "hgb__min_samples_leaf": 10,
+          "hgb__max_iter": 400,
+          "hgb__learning_rate": 0.1
+        }
+      },
+      {
+        "fold": 5,
+        "model": "XGB",
+        "r2": -0.038586149450658525,
+        "rmse": 6.713199861822631,
+        "pinball90": 1.2386274809293079,
+        "best_params": {
+          "xgb__subsample": 0.7,
+          "xgb__reg_lambda": 0.5,
+          "xgb__max_depth": 4,
+          "xgb__learning_rate": 0.1,
+          "xgb__colsample_bytree": 0.8
+        }
+      },
+      {
+        "fold": 5,
+        "model": "ENS",
+        "r2": 0.2391581879772331,
+        "rmse": 5.745866076034589,
+        "pinball90": 1.2386274809293079,
+        "best_params": {
+          "weights": {
+            "SVR": 1.0,
+            "HGB": 0.0,
+            "XGB": 0.0
+          }
+        }
+      }
+    ],
+    "oof_summary": {
+      "SVR": {
+        "R2": 0.35489690755803516,
+        "RMSE": 2.896821032038962,
+        "Pinball@0.90": 0.39159274875310335
+      },
+      "HGB": {
+        "R2": 0.07356136520392442,
+        "RMSE": 3.4714861109905004,
+        "Pinball@0.90": 0.39159274875310335
+      },
+      "XGB": {
+        "R2": -0.03644986959553953,
+        "RMSE": 3.6718189062118785,
+        "Pinball@0.90": 0.39159274875310335
+      },
+      "ENS": {
+        "R2": 0.37058925237538354,
+        "RMSE": 2.86137105975359,
+        "Pinball@0.90": 0.39159274875310335
+      }
+    }
+  }
+}

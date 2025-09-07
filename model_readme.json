@@ -1,0 +1,33 @@
+{
+  "how_to_use": "加载 joblib 后调用 predict_pm25(DataFrame) 即可输出预测（会自动做预处理与非负剪裁）。",
+  "weights": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "features_expected": [
+    "Initial_Temperature",
+    "Final_Temperature",
+    "Initial_Speed",
+    "Final_Speed",
+    "Deceleration_Rate",
+    "Contact_Pressure",
+    "Braking_Time",
+    "Temp_Rise",
+    "Temp_Rise_Rate",
+    "Mean_Temp",
+    "Speed_Drop_kmh",
+    "Speed_Drop_ms",
+    "Mean_Speed_ms",
+    "Braking_Distance",
+    "Decel_ms2_src",
+    "Decel_ms2_kin",
+    "SpeedXDecel",
+    "Energy_Rel",
+    "Power_Rel",
+    "Pressure_Time",
+    "V1_over_V0",
+    "Tf_over_Ti",
+    "PT_over_Erel"
+  ]
+}

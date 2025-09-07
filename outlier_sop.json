@@ -1,0 +1,9 @@
+{
+  "RUN_IQR_SCREENING": true,
+  "RUN_IQR_SENSITIVITY": true,
+  "IQR_K_INNER": 1.5,
+  "IQR_K_OUTER": 3.0,
+  "IQR_TRIM_STRATEGY": "inner",
+  "notes": "IQR 仅用于异常识别筛查；敏感性分析为预先声明的对照，主结论基于全数据 + 稳健方法。",
+  "ensemble_loss": "RMSE + 0.20 * Pinball@0.9"
+}
