@@ -27,9 +27,10 @@ from scipy.interpolate import interp1d
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import FunctionTransformer, RobustScaler
+from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.model_selection import (
     KFold, RepeatedStratifiedKFold, StratifiedKFold,
-    RandomizedSearchCV, learning_curve, train_test_split
+    HalvingRandomSearchCV, learning_curve, train_test_split
 )
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVR
@@ -65,9 +66,9 @@ N_INNER = 3
 N_REPEATS = 2
 RANDOM_STATE = 42
 N_JOBS = 1
-N_ITER_SVR = 40
-N_ITER_HGB = 40
-N_ITER_XGB = 30
+N_ITER_SVR = 80
+N_ITER_HGB = 80
+N_ITER_XGB = 60
 
 # 分层配置
 Y_BINS = 7
@@ -88,7 +89,8 @@ IQR_TRIM_STRATEGY = "inner"
 
 # 集成损失权衡
 LAMBDA_PB = 0.20
-WEIGHT_GRID_STEP = 0.02
+# Finer grid for weight search
+WEIGHT_GRID_STEP = 0.005
 
 # 输出路径
 OUTPUT_DIR = "pm25_output"
@@ -248,6 +250,10 @@ def plot_iqr_summary(y: np.ndarray, save_dir: str):
     outer_lo = q1 - IQR_K_OUTER * iqr
     outer_hi = q3 + IQR_K_OUTER * iqr
 
+    # 保证围栏可见的上下边距
+    margin = 0.05 * (outer_hi - outer_lo)
+    ax1.set_ylim(outer_lo - margin, outer_hi + margin)
+
     # 添加围栏线
     ax1.axhline(inner_lo, color='orange', linestyle='--', label=f'Inner fence (1.5×IQR)')
     ax1.axhline(inner_hi, color='orange', linestyle='--')
@@ -256,13 +262,21 @@ def plot_iqr_summary(y: np.ndarray, save_dir: str):
     ax1.legend()
 
     # 异常值计数条形图
-    mild = ((y < inner_lo) | (y > inner_hi)).sum()
-    extreme = ((y < outer_lo) | (y > outer_hi)).sum()
-    normal = len(y) - mild
+    mild_mask = (y < inner_lo) | (y > inner_hi)
+    extreme_mask = (y < outer_lo) | (y > outer_hi)
+    mild_only = mild_mask & ~extreme_mask
+    normal_mask = ~mild_mask
+
+    normal = normal_mask.sum()
+    mild = mild_only.sum()
+    extreme = extreme_mask.sum()
 
     categories = ['Normal', 'Mild Outliers', 'Extreme Outliers']
-    counts = [normal, mild - extreme, extreme]
+    counts = [normal, mild, extreme]
     colors = ['green', 'orange', 'red']
+
+    # 确保计数总和等于样本数量
+    assert sum(counts) == len(y), 'Counts do not sum to total observations'
 
     bars = ax2.bar(categories, counts, color=colors, alpha=0.7, edgecolor='black')
     ax2.set_ylabel('Count')
@@ -293,19 +307,48 @@ def plot_correlation_heatmaps(X: np.ndarray, feature_names: List[str], y: np.nda
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
 
+    # 对Spearman相关性取绝对值最大值，统一颜色范围
+    max_abs = np.abs(corr_spearman.values).max()
+
     # Spearman相关性
     mask = np.triu(np.ones_like(corr_spearman, dtype=bool), k=1)
-    sns.heatmap(corr_spearman, mask=mask, annot=False, cmap='coolwarm', center=0,
-                square=True, linewidths=0.5, cbar_kws={"shrink": 0.8},
-                vmin=-1, vmax=1, ax=ax1)
-    ax1.set_title('Spearman Correlation Matrix (More Robust)', fontsize=14)
+    sns.heatmap(
+        corr_spearman,
+        mask=mask,
+        annot=True,
+        fmt=".2f",
+        annot_kws={"size": 8},
+        cmap="coolwarm",
+        center=0,
+        square=True,
+        linewidths=0.5,
+        cbar_kws={"shrink": 0.8},
+        vmin=-max_abs,
+        vmax=max_abs,
+        ax=ax1,
+    )
+    ax1.set_title("Spearman Correlation Matrix (More Robust)", fontsize=14)
+    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha="right")
 
     # Pearson相关性
     mask = np.triu(np.ones_like(corr_pearson, dtype=bool), k=1)
-    sns.heatmap(corr_pearson, mask=mask, annot=False, cmap='coolwarm', center=0,
-                square=True, linewidths=0.5, cbar_kws={"shrink": 0.8},
-                vmin=-1, vmax=1, ax=ax2)
-    ax2.set_title('Pearson Correlation Matrix (Linear)', fontsize=14)
+    sns.heatmap(
+        corr_pearson,
+        mask=mask,
+        annot=True,
+        fmt=".2f",
+        annot_kws={"size": 8},
+        cmap="coolwarm",
+        center=0,
+        square=True,
+        linewidths=0.5,
+        cbar_kws={"shrink": 0.8},
+        vmin=-max_abs,
+        vmax=max_abs,
+        ax=ax2,
+    )
+    ax2.set_title("Pearson Correlation Matrix (Linear)", fontsize=14)
+    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45, ha="right")
 
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'correlation_heatmaps.png'), dpi=150, bbox_inches='tight')
@@ -405,10 +448,15 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
     """绘制学习曲线"""
     train_sizes = np.linspace(0.2, 1.0, 8)
 
-    for name, model in models.items():
-        fig, ax = plt.subplots(figsize=(10, 6))
+    # 收集所有模型的得分以计算统一的上界
+    results: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    all_train_scores: List[np.ndarray] = []
+    all_val_scores: List[np.ndarray] = []
 
-        cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
+    # 首先计算每个模型的学习曲线并存储结果
+    for name, model in models.items():
         train_sizes_abs, train_scores, val_scores = learning_curve(
             model, X, y, cv=cv, train_sizes=train_sizes,
             scoring='neg_root_mean_squared_error', n_jobs=N_JOBS,
@@ -419,7 +467,19 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
         train_scores = -train_scores
         val_scores = -val_scores
 
-        # 计算均值和标准差
+        results[name] = (train_sizes_abs, train_scores, val_scores)
+        all_train_scores.append(train_scores)
+        all_val_scores.append(val_scores)
+
+    # 计算所有模型中的RMSE上界
+    train_scores = np.vstack(all_train_scores)
+    val_scores = np.vstack(all_val_scores)
+    upper = 1.1 * max(train_scores.max(), val_scores.max())
+
+    # 绘制每个模型的学习曲线，统一y轴范围
+    for name, (train_sizes_abs, train_scores, val_scores) in results.items():
+        fig, ax = plt.subplots(figsize=(10, 6))
+
         train_mean = train_scores.mean(axis=1)
         train_std = train_scores.std(axis=1)
         val_mean = val_scores.mean(axis=1)
@@ -439,6 +499,7 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
         ax.set_title(f'Learning Curve - {name}')
         ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
+        ax.set_ylim(0, upper)
 
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, f'learning_curve_{name.lower()}.png'),
@@ -566,13 +627,16 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
                            l2: float = 1e-3, lam: float = LAMBDA_PB,
                            step: float = WEIGHT_GRID_STEP,
                            weak_cap: Tuple[float, float] = (1.4, 1.7)) -> Dict[str, float]:
-    """单纯形网格搜索集成权重"""
+
+    """Optimize ensemble weights on the simplex."""
+    from scipy.optimize import minimize
+
     names = list(preds.keys())
     M = len(names)
     P = np.vstack([preds[k] for k in names]).T
     y = y_val.reshape(-1)
 
-    # 单模型评估
+    # 单模型评估并设置上限
     rmses = {k: rmse(y, preds[k]) for k in names}
     best_rmse = min(rmses.values())
     caps = {k: 1.0 for k in names}
@@ -586,32 +650,15 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
         y_ens = P @ w
         return rmse(y, y_ens) + lam * pinball90(y, y_ens) + l2 * float(np.dot(w, w))
 
-    best_w, best_obj = None, float("inf")
-    ks = np.arange(0.0, 1.0 + step, step)
+    bounds = [(0.0, caps[n]) for n in names]
+    cons = {'type': 'eq', 'fun': lambda w: np.sum(w) - 1}
+    x0 = np.ones(M) / M
+    res = minimize(_loss, x0=x0, bounds=bounds, constraints=cons, method='SLSQP')
+    if not res.success:
+        best_w = x0
 
-    if M == 2:
-        for w0 in ks:
-            w = np.array([w0, 1 - w0])
-            if w[0] > caps[names[0]] or w[1] > caps[names[1]]:
-                continue
-            obj = _loss(w)
-            if obj < best_obj:
-                best_obj, best_w = obj, w
-
-    elif M == 3:
-        for w0 in ks:
-            for w1 in ks:
-                w2 = 1 - w0 - w1
-                if w2 < 0:
-                    continue
-                w = np.array([w0, w1, w2])
-                if any(w[i] > caps[names[i]] for i in range(3)):
-                    continue
-                obj = _loss(w)
-                if obj < best_obj:
-                    best_obj, best_w = obj, w
     else:
-        best_w = np.ones(M) / M
+        best_w = res.x
 
     # 稀疏化
     best_w = np.where(best_w < 1e-3, 0.0, best_w)
@@ -699,14 +746,15 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         y_bins_inner = stratify_bins(ytr, n_bins=min(Y_BINS, max(3, int(np.sqrt(len(ytr))))))
         skf_inner = StratifiedKFold(n_splits=N_INNER, shuffle=True,
                                     random_state=RANDOM_STATE + fold_idx)
+        cv_inner_splits = list(skf_inner.split(Xtr, y_bins_inner))
 
         # 训练SVR
         svr = make_svr_pipeline(RANDOM_STATE + fold_idx)
-        svr_rs = RandomizedSearchCV(
+        svr_rs = HalvingRandomSearchCV(
             estimator=svr,
             param_distributions=param_space_svr(),
-            n_iter=N_ITER_SVR,
-            cv=skf_inner.split(Xtr, y_bins_inner),
+            n_candidates=N_ITER_SVR,
+            cv=cv_inner_splits,
             scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx, verbose=0
@@ -716,11 +764,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
 
         # 训练HGB
         hgb = make_hgb_pipeline(RANDOM_STATE + fold_idx)
-        hgb_rs = RandomizedSearchCV(
+        hgb_rs = HalvingRandomSearchCV(
             estimator=hgb,
             param_distributions=param_space_hgb(),
-            n_iter=N_ITER_HGB,
-            cv=skf_inner.split(Xtr, y_bins_inner),
+            n_candidates=N_ITER_HGB,
+            cv=cv_inner_splits,
             scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx + 1, verbose=0
@@ -732,11 +780,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         xgb_rs = None
         if USE_XGB:
             xgb = make_xgb_pipeline(RANDOM_STATE + fold_idx)
-            xgb_rs = RandomizedSearchCV(
+            xgb_rs = HalvingRandomSearchCV(
                 estimator=xgb,
                 param_distributions=param_space_xgb(),
-                n_iter=N_ITER_XGB,
-                cv=skf_inner.split(Xtr, y_bins_inner),
+                n_candidates=N_ITER_XGB,
+                cv=cv_inner_splits,
                 scoring="neg_root_mean_squared_error",
                 n_jobs=N_JOBS, refit=True,
                 random_state=RANDOM_STATE + fold_idx + 2, verbose=0
@@ -990,8 +1038,8 @@ def main():
         # SVR
         svr_final = make_svr_pipeline(RANDOM_STATE)
         svr_cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-        svr_rs = RandomizedSearchCV(
-            svr_final, param_space_svr(), n_iter=N_ITER_SVR,
+        svr_rs = HalvingRandomSearchCV(
+            svr_final, param_space_svr(), n_candidates=N_ITER_SVR,
             cv=svr_cv, scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, random_state=RANDOM_STATE
         )
@@ -1000,8 +1048,8 @@ def main():
 
         # HGB
         hgb_final = make_hgb_pipeline(RANDOM_STATE)
-        hgb_rs = RandomizedSearchCV(
-            hgb_final, param_space_hgb(), n_iter=N_ITER_HGB,
+        hgb_rs = HalvingRandomSearchCV(
+            hgb_final, param_space_hgb(), n_candidates=N_ITER_HGB,
             cv=svr_cv, scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, random_state=RANDOM_STATE + 1
         )
