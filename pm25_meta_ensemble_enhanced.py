@@ -621,23 +621,29 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
 
 
 # ============ Permutation Importance计算 ============
-def compute_permutation_importance(models: Dict, X_folds: List[np.ndarray],
-                                   y_folds: List[np.ndarray], feature_names: List[str]) -> pd.DataFrame:
+def compute_permutation_importance(models_per_fold: List[Dict[str, Any]],
+                                   X_folds: List[np.ndarray],
+                                   y_folds: List[np.ndarray],
+                                   feature_names: List[str]) -> pd.DataFrame:
     """计算折外Permutation Importance"""
     pi_results = {feat: [] for feat in feature_names}
 
-    for fold_idx, (X_val, y_val) in enumerate(zip(X_folds, y_folds)):
-        for model_name, model in models.items():
+    # 遍历每个fold及其对应的模型集合
+    for fold_idx, (model_dict, X_val, y_val) in enumerate(
+            zip(models_per_fold, X_folds, y_folds)):
+        for model_name, model in model_dict.items():
             if model is None:
                 continue
 
             # 计算PI
             result = permutation_importance(
-                model, X_val, y_val,
+                model,
+                X_val,
+                y_val,
                 n_repeats=10,
                 random_state=RANDOM_STATE + fold_idx,
                 scoring='r2',
-                n_jobs=N_JOBS
+                n_jobs=N_JOBS,
             )
 
             # 记录每个特征的重要性
