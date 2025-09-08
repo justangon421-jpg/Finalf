@@ -30,7 +30,7 @@ from sklearn.preprocessing import FunctionTransformer, RobustScaler
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.model_selection import (
     KFold, RepeatedStratifiedKFold, StratifiedKFold,
-    HalvingRandomSearchCV, learning_curve, train_test_split
+    RandomizedSearchCV, learning_curve, train_test_split
 )
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVR
@@ -66,9 +66,9 @@ N_INNER = 3
 N_REPEATS = 2
 RANDOM_STATE = 42
 N_JOBS = 1
-N_ITER_SVR = 80
-N_ITER_HGB = 80
-N_ITER_XGB = 60
+N_ITER_SVR = 40
+N_ITER_HGB = 40
+N_ITER_XGB = 30
 
 # 分层配置
 Y_BINS = 7
@@ -89,8 +89,7 @@ IQR_TRIM_STRATEGY = "inner"
 
 # 集成损失权衡
 LAMBDA_PB = 0.20
-# Finer grid for weight search
-WEIGHT_GRID_STEP = 0.005
+WEIGHT_GRID_STEP = 0.02
 
 # 输出路径
 OUTPUT_DIR = "pm25_output"
@@ -627,16 +626,13 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
                            l2: float = 1e-3, lam: float = LAMBDA_PB,
                            step: float = WEIGHT_GRID_STEP,
                            weak_cap: Tuple[float, float] = (1.4, 1.7)) -> Dict[str, float]:
-
-    """Optimize ensemble weights on the simplex."""
-    from scipy.optimize import minimize
-
+    """单纯形网格搜索集成权重"""
     names = list(preds.keys())
     M = len(names)
     P = np.vstack([preds[k] for k in names]).T
     y = y_val.reshape(-1)
 
-    # 单模型评估并设置上限
+    # 单模型评估
     rmses = {k: rmse(y, preds[k]) for k in names}
     best_rmse = min(rmses.values())
     caps = {k: 1.0 for k in names}
@@ -650,15 +646,32 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
         y_ens = P @ w
         return rmse(y, y_ens) + lam * pinball90(y, y_ens) + l2 * float(np.dot(w, w))
 
-    bounds = [(0.0, caps[n]) for n in names]
-    cons = {'type': 'eq', 'fun': lambda w: np.sum(w) - 1}
-    x0 = np.ones(M) / M
-    res = minimize(_loss, x0=x0, bounds=bounds, constraints=cons, method='SLSQP')
-    if not res.success:
-        best_w = x0
+    best_w, best_obj = None, float("inf")
+    ks = np.arange(0.0, 1.0 + step, step)
 
+    if M == 2:
+        for w0 in ks:
+            w = np.array([w0, 1 - w0])
+            if w[0] > caps[names[0]] or w[1] > caps[names[1]]:
+                continue
+            obj = _loss(w)
+            if obj < best_obj:
+                best_obj, best_w = obj, w
+
+    elif M == 3:
+        for w0 in ks:
+            for w1 in ks:
+                w2 = 1 - w0 - w1
+                if w2 < 0:
+                    continue
+                w = np.array([w0, w1, w2])
+                if any(w[i] > caps[names[i]] for i in range(3)):
+                    continue
+                obj = _loss(w)
+                if obj < best_obj:
+                    best_obj, best_w = obj, w
     else:
-        best_w = res.x
+        best_w = np.ones(M) / M
 
     # 稀疏化
     best_w = np.where(best_w < 1e-3, 0.0, best_w)
@@ -746,15 +759,14 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         y_bins_inner = stratify_bins(ytr, n_bins=min(Y_BINS, max(3, int(np.sqrt(len(ytr))))))
         skf_inner = StratifiedKFold(n_splits=N_INNER, shuffle=True,
                                     random_state=RANDOM_STATE + fold_idx)
-        cv_inner_splits = list(skf_inner.split(Xtr, y_bins_inner))
 
         # 训练SVR
         svr = make_svr_pipeline(RANDOM_STATE + fold_idx)
-        svr_rs = HalvingRandomSearchCV(
+        svr_rs = RandomizedSearchCV(
             estimator=svr,
             param_distributions=param_space_svr(),
-            n_candidates=N_ITER_SVR,
-            cv=cv_inner_splits,
+            n_iter=N_ITER_SVR,
+            cv=skf_inner.split(Xtr, y_bins_inner),
             scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx, verbose=0
@@ -764,11 +776,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
 
         # 训练HGB
         hgb = make_hgb_pipeline(RANDOM_STATE + fold_idx)
-        hgb_rs = HalvingRandomSearchCV(
+        hgb_rs = RandomizedSearchCV(
             estimator=hgb,
             param_distributions=param_space_hgb(),
-            n_candidates=N_ITER_HGB,
-            cv=cv_inner_splits,
+            n_iter=N_ITER_HGB,
+            cv=skf_inner.split(Xtr, y_bins_inner),
             scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx + 1, verbose=0
@@ -780,11 +792,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         xgb_rs = None
         if USE_XGB:
             xgb = make_xgb_pipeline(RANDOM_STATE + fold_idx)
-            xgb_rs = HalvingRandomSearchCV(
+            xgb_rs = RandomizedSearchCV(
                 estimator=xgb,
                 param_distributions=param_space_xgb(),
-                n_candidates=N_ITER_XGB,
-                cv=cv_inner_splits,
+                n_iter=N_ITER_XGB,
+                cv=skf_inner.split(Xtr, y_bins_inner),
                 scoring="neg_root_mean_squared_error",
                 n_jobs=N_JOBS, refit=True,
                 random_state=RANDOM_STATE + fold_idx + 2, verbose=0
@@ -1038,8 +1050,8 @@ def main():
         # SVR
         svr_final = make_svr_pipeline(RANDOM_STATE)
         svr_cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-        svr_rs = HalvingRandomSearchCV(
-            svr_final, param_space_svr(), n_candidates=N_ITER_SVR,
+        svr_rs = RandomizedSearchCV(
+            svr_final, param_space_svr(), n_iter=N_ITER_SVR,
             cv=svr_cv, scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, random_state=RANDOM_STATE
         )
@@ -1048,8 +1060,8 @@ def main():
 
         # HGB
         hgb_final = make_hgb_pipeline(RANDOM_STATE)
-        hgb_rs = HalvingRandomSearchCV(
-            hgb_final, param_space_hgb(), n_candidates=N_ITER_HGB,
+        hgb_rs = RandomizedSearchCV(
+            hgb_final, param_space_hgb(), n_iter=N_ITER_HGB,
             cv=svr_cv, scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, random_state=RANDOM_STATE + 1
         )
