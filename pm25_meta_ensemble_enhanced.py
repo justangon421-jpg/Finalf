@@ -27,7 +27,6 @@ from scipy.interpolate import interp1d
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import FunctionTransformer, RobustScaler
-from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.model_selection import (
     KFold, RepeatedStratifiedKFold, StratifiedKFold,
     RandomizedSearchCV, learning_curve, train_test_split
@@ -249,10 +248,6 @@ def plot_iqr_summary(y: np.ndarray, save_dir: str):
     outer_lo = q1 - IQR_K_OUTER * iqr
     outer_hi = q3 + IQR_K_OUTER * iqr
 
-    # 保证围栏可见的上下边距
-    margin = 0.05 * (outer_hi - outer_lo)
-    ax1.set_ylim(outer_lo - margin, outer_hi + margin)
-
     # 添加围栏线
     ax1.axhline(inner_lo, color='orange', linestyle='--', label=f'Inner fence (1.5×IQR)')
     ax1.axhline(inner_hi, color='orange', linestyle='--')
@@ -261,21 +256,13 @@ def plot_iqr_summary(y: np.ndarray, save_dir: str):
     ax1.legend()
 
     # 异常值计数条形图
-    mild_mask = (y < inner_lo) | (y > inner_hi)
-    extreme_mask = (y < outer_lo) | (y > outer_hi)
-    mild_only = mild_mask & ~extreme_mask
-    normal_mask = ~mild_mask
-
-    normal = normal_mask.sum()
-    mild = mild_only.sum()
-    extreme = extreme_mask.sum()
+    mild = ((y < inner_lo) | (y > inner_hi)).sum()
+    extreme = ((y < outer_lo) | (y > outer_hi)).sum()
+    normal = len(y) - mild
 
     categories = ['Normal', 'Mild Outliers', 'Extreme Outliers']
-    counts = [normal, mild, extreme]
+    counts = [normal, mild - extreme, extreme]
     colors = ['green', 'orange', 'red']
-
-    # 确保计数总和等于样本数量
-    assert sum(counts) == len(y), 'Counts do not sum to total observations'
 
     bars = ax2.bar(categories, counts, color=colors, alpha=0.7, edgecolor='black')
     ax2.set_ylabel('Count')
@@ -306,48 +293,19 @@ def plot_correlation_heatmaps(X: np.ndarray, feature_names: List[str], y: np.nda
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
 
-    # 对Spearman相关性取绝对值最大值，统一颜色范围
-    max_abs = np.abs(corr_spearman.values).max()
-
     # Spearman相关性
     mask = np.triu(np.ones_like(corr_spearman, dtype=bool), k=1)
-    sns.heatmap(
-        corr_spearman,
-        mask=mask,
-        annot=True,
-        fmt=".2f",
-        annot_kws={"size": 8},
-        cmap="coolwarm",
-        center=0,
-        square=True,
-        linewidths=0.5,
-        cbar_kws={"shrink": 0.8},
-        vmin=-max_abs,
-        vmax=max_abs,
-        ax=ax1,
-    )
-    ax1.set_title("Spearman Correlation Matrix (More Robust)", fontsize=14)
-    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha="right")
+    sns.heatmap(corr_spearman, mask=mask, annot=False, cmap='coolwarm', center=0,
+                square=True, linewidths=0.5, cbar_kws={"shrink": 0.8},
+                vmin=-1, vmax=1, ax=ax1)
+    ax1.set_title('Spearman Correlation Matrix (More Robust)', fontsize=14)
 
     # Pearson相关性
     mask = np.triu(np.ones_like(corr_pearson, dtype=bool), k=1)
-    sns.heatmap(
-        corr_pearson,
-        mask=mask,
-        annot=True,
-        fmt=".2f",
-        annot_kws={"size": 8},
-        cmap="coolwarm",
-        center=0,
-        square=True,
-        linewidths=0.5,
-        cbar_kws={"shrink": 0.8},
-        vmin=-max_abs,
-        vmax=max_abs,
-        ax=ax2,
-    )
-    ax2.set_title("Pearson Correlation Matrix (Linear)", fontsize=14)
-    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45, ha="right")
+    sns.heatmap(corr_pearson, mask=mask, annot=False, cmap='coolwarm', center=0,
+                square=True, linewidths=0.5, cbar_kws={"shrink": 0.8},
+                vmin=-1, vmax=1, ax=ax2)
+    ax2.set_title('Pearson Correlation Matrix (Linear)', fontsize=14)
 
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'correlation_heatmaps.png'), dpi=150, bbox_inches='tight')
@@ -447,15 +405,10 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
     """绘制学习曲线"""
     train_sizes = np.linspace(0.2, 1.0, 8)
 
-    # 收集所有模型的得分以计算统一的上界
-    results: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
-    all_train_scores: List[np.ndarray] = []
-    all_val_scores: List[np.ndarray] = []
-
-    cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-
-    # 首先计算每个模型的学习曲线并存储结果
     for name, model in models.items():
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        cv = KFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
         train_sizes_abs, train_scores, val_scores = learning_curve(
             model, X, y, cv=cv, train_sizes=train_sizes,
             scoring='neg_root_mean_squared_error', n_jobs=N_JOBS,
@@ -466,19 +419,7 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
         train_scores = -train_scores
         val_scores = -val_scores
 
-        results[name] = (train_sizes_abs, train_scores, val_scores)
-        all_train_scores.append(train_scores)
-        all_val_scores.append(val_scores)
-
-    # 计算所有模型中的RMSE上界
-    train_scores = np.vstack(all_train_scores)
-    val_scores = np.vstack(all_val_scores)
-    upper = 1.1 * max(train_scores.max(), val_scores.max())
-
-    # 绘制每个模型的学习曲线，统一y轴范围
-    for name, (train_sizes_abs, train_scores, val_scores) in results.items():
-        fig, ax = plt.subplots(figsize=(10, 6))
-
+        # 计算均值和标准差
         train_mean = train_scores.mean(axis=1)
         train_std = train_scores.std(axis=1)
         val_mean = val_scores.mean(axis=1)
@@ -498,7 +439,6 @@ def plot_learning_curves(X: np.ndarray, y: np.ndarray, models: Dict, save_dir: s
         ax.set_title(f'Learning Curve - {name}')
         ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
-        ax.set_ylim(0, upper)
 
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, f'learning_curve_{name.lower()}.png'),
@@ -621,12 +561,12 @@ def param_space_xgb():
     }
 
 
-# ============ 集成权重学习 ============
+# ============ 集成权重学习（增强版） ============
 def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
                            l2: float = 1e-3, lam: float = LAMBDA_PB,
                            step: float = WEIGHT_GRID_STEP,
                            weak_cap: Tuple[float, float] = (1.4, 1.7)) -> Dict[str, float]:
-    """单纯形网格搜索集成权重"""
+    """单纯形网格搜索集成权重（带自适应权重约束）"""
     names = list(preds.keys())
     M = len(names)
     P = np.vstack([preds[k] for k in names]).T
@@ -634,22 +574,39 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
 
     # 单模型评估
     rmses = {k: rmse(y, preds[k]) for k in names}
+    r2s = {k: r2_score(y, preds[k]) for k in names}
     best_rmse = min(rmses.values())
-    caps = {k: 1.0 for k in names}
+
+    # 动态权重上限（基于性能）
+    caps = {}
     for k in names:
         if rmses[k] > weak_cap[1] * best_rmse:
-            caps[k] = 0.0
+            caps[k] = 0.0  # 性能太差，禁用
         elif rmses[k] > weak_cap[0] * best_rmse:
-            caps[k] = 0.5
+            caps[k] = 0.5  # 性能一般，限制权重
+        else:
+            # 基于R²动态调整权重上限
+            if r2s[k] > 0.5:
+                caps[k] = 1.0  # 优秀模型，无限制
+            elif r2s[k] > 0.3:
+                caps[k] = 0.8  # 良好模型
+            else:
+                caps[k] = 0.6  # 一般模型
 
     def _loss(w):
         y_ens = P @ w
-        return rmse(y, y_ens) + lam * pinball90(y, y_ens) + l2 * float(np.dot(w, w))
+        base_loss = rmse(y, y_ens) + lam * pinball90(y, y_ens)
+        reg_term = l2 * float(np.dot(w, w))
+        # 添加多样性奖励（鼓励使用多个模型）
+        diversity_bonus = -0.01 * np.sum(w > 0.1)
+        return base_loss + reg_term + diversity_bonus
 
+    # 优化搜索策略
     best_w, best_obj = None, float("inf")
-    ks = np.arange(0.0, 1.0 + step, step)
 
     if M == 2:
+        # 对于两个模型，使用更细的网格
+        ks = np.arange(0.0, 1.0 + step / 2, step / 2)
         for w0 in ks:
             w = np.array([w0, 1 - w0])
             if w[0] > caps[names[0]] or w[1] > caps[names[1]]:
@@ -659,8 +616,11 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
                 best_obj, best_w = obj, w
 
     elif M == 3:
-        for w0 in ks:
-            for w1 in ks:
+        # 对于三个模型，使用自适应搜索
+        # 先粗搜索
+        coarse_step = step * 2
+        for w0 in np.arange(0, 1 + coarse_step, coarse_step):
+            for w1 in np.arange(0, 1 - w0 + coarse_step, coarse_step):
                 w2 = 1 - w0 - w1
                 if w2 < 0:
                     continue
@@ -670,40 +630,57 @@ def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
                 obj = _loss(w)
                 if obj < best_obj:
                     best_obj, best_w = obj, w
-    else:
-        best_w = np.ones(M) / M
 
-    # 稀疏化
-    best_w = np.where(best_w < 1e-3, 0.0, best_w)
+        # 精细搜索（在最优解附近）
+        if best_w is not None:
+            center = best_w
+            for delta in np.linspace(-step * 2, step * 2, 5):
+                for i in range(3):
+                    w_test = center.copy()
+                    w_test[i] = max(0, min(1, center[i] + delta))
+                    w_test = w_test / w_test.sum()  # 重新归一化
+                    if any(w_test[j] > caps[names[j]] for j in range(3)):
+                        continue
+                    obj = _loss(w_test)
+                    if obj < best_obj:
+                        best_obj, best_w = obj, w_test
+    else:
+        # 多于3个模型时使用启发式方法
+        # 基于性能的初始权重
+        perfs = np.array([1.0 / (rmses[k] + 0.1) for k in names])
+        best_w = perfs / perfs.sum()
+        # 应用权重上限
+        for i, name in enumerate(names):
+            best_w[i] = min(best_w[i], caps[name])
+        best_w = best_w / best_w.sum()
+
+    # 稀疏化（移除极小权重）
+    threshold = 0.02  # 更激进的稀疏化
+    best_w = np.where(best_w < threshold, 0.0, best_w)
     s = best_w.sum()
     best_w = np.ones(M) / M if s <= 0 else best_w / s
+
     return {names[i]: float(best_w[i]) for i in range(M)}
 
 
 # ============ Permutation Importance计算 ============
-def compute_permutation_importance(models_per_fold: List[Dict[str, Any]],
-                                   X_folds: List[np.ndarray],
-                                   y_folds: List[np.ndarray],
-                                   feature_names: List[str]) -> pd.DataFrame:
+def compute_permutation_importance(models: Dict, X_folds: List[np.ndarray],
+                                   y_folds: List[np.ndarray], feature_names: List[str]) -> pd.DataFrame:
     """计算折外Permutation Importance"""
     pi_results = {feat: [] for feat in feature_names}
 
-    # 遍历每个fold及其对应的模型集合
-    for fold_idx, (model_dict, X_val, y_val) in enumerate(
-            zip(models_per_fold, X_folds, y_folds)):
-        for model_name, model in model_dict.items():
+    for fold_idx, (X_val, y_val) in enumerate(zip(X_folds, y_folds)):
+        for model_name, model in models.items():
             if model is None:
                 continue
 
             # 计算PI
             result = permutation_importance(
-                model,
-                X_val,
-                y_val,
+                model, X_val, y_val,
                 n_repeats=10,
                 random_state=RANDOM_STATE + fold_idx,
                 scoring='r2',
-                n_jobs=N_JOBS,
+                n_jobs=N_JOBS
             )
 
             # 记录每个特征的重要性
