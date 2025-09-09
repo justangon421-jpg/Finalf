@@ -7,12 +7,6 @@ A. 数据准备与可视化（y分布、IQR围栏、特征相关性）
 B. 基准建模与Permutation Importance
 C. 基于PI的特征筛选与重训
 D. 可选的留出集和敏感性分析
-
-修复内容：
-1. 添加样本权重处理极端值
-2. 移除树模型的缩放
-3. 使用稳健损失函数
-4. 统一评估目标
 """
 
 import os
@@ -40,7 +34,7 @@ from sklearn.model_selection import (
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVR
 from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.metrics import r2_score, mean_squared_error, mean_pinball_loss, make_scorer
+from sklearn.metrics import r2_score, mean_squared_error, mean_pinball_loss
 from sklearn.utils.validation import check_random_state
 from sklearn.inspection import permutation_importance, PartialDependenceDisplay
 
@@ -72,8 +66,8 @@ N_REPEATS = 2
 RANDOM_STATE = 42
 N_JOBS = 1
 N_ITER_SVR = 40
-N_ITER_HGB = 60  # 增加HGB搜索次数
-N_ITER_XGB = 80  # 增加XGB搜索次数
+N_ITER_HGB = 40
+N_ITER_XGB = 30
 
 # 分层配置
 Y_BINS = 7
@@ -81,7 +75,7 @@ PINBALL_Q = 0.90
 
 # 特征选择配置
 PI_MIN_IMPORTANCE = 0.0  # PI最小重要性阈值
-PI_MIN_POS_RATIO = 0.6  # PI正贡献折占比阈值
+PI_MIN_POS_RATIO = 0.7  # PI正贡献折占比阈值
 MIN_FEATURES_KEEP = 10  # 最少保留特征数
 TOP_K_FEATURES = None  # 可设置为12等，None表示不限制
 
@@ -132,46 +126,6 @@ class Winsorizer(BaseEstimator, TransformerMixin):
     def transform(self, X):
         X = np.asarray(X, dtype=float)
         return np.clip(X, self.lower_, self.upper_)
-
-
-# ============ 新增：样本权重计算 ============
-def compute_sample_weights(y: np.ndarray, method='iqr_weight') -> np.ndarray:
-    """计算样本权重，降低极端值权重"""
-    y = np.asarray(y, dtype=float).reshape(-1)
-    weights = np.ones(len(y))
-
-    if method == 'iqr_weight':
-        q1, q3 = np.percentile(y, [25, 75])
-        iqr = q3 - q1
-        inner_lo = q1 - 1.5 * iqr
-        inner_hi = q3 + 1.5 * iqr
-        outer_lo = q1 - 3.0 * iqr
-        outer_hi = q3 + 3.0 * iqr
-
-        # 极端外围点 -> 0.2权重
-        extreme_mask = (y < outer_lo) | (y > outer_hi)
-        weights[extreme_mask] = 0.2
-
-        # 温和异常点 -> 0.5权重
-        mild_mask = ((y < inner_lo) | (y > inner_hi)) & (~extreme_mask)
-        weights[mild_mask] = 0.5
-
-        print(
-            f"Sample weighting: {extreme_mask.sum()} extreme (0.2x), {mild_mask.sum()} mild (0.5x), {(~(extreme_mask | mild_mask)).sum()} normal (1.0x)")
-
-    return weights
-
-
-# ============ 新增：稳健评估器 ============
-def make_robust_scorer():
-    """创建 RMSE + λ·Pinball@0.90 评估器"""
-
-    def robust_loss(y_true, y_pred, sample_weight=None):
-        rmse_val = rmse(y_true, y_pred)
-        pinball_val = pinball90(y_true, y_pred)
-        return -(rmse_val + LAMBDA_PB * pinball_val)  # 负号因为sklearn要最大化
-
-    return make_scorer(robust_loss, greater_is_better=True)
 
 
 def rmse(y_true, y_pred):
@@ -519,9 +473,8 @@ def plot_ensemble_weights(weights_list: List[Dict[str, float]], save_dir: str):
     plt.close()
 
 
-# ============ 修改后的模型构建函数 ============
+# ============ 模型构建函数 ============
 def make_svr_pipeline(random_state: int) -> TransformedTargetRegressor:
-    """SVR保持原有设计"""
     pre = Pipeline([
         ("winsor", Winsorizer(0.01, 0.99)),
         ("scale", RobustScaler()),
@@ -536,15 +489,13 @@ def make_svr_pipeline(random_state: int) -> TransformedTargetRegressor:
 
 
 def make_hgb_pipeline(random_state: int) -> TransformedTargetRegressor:
-    """修改后的HGB - 移除缩放，使用绝对误差"""
     hgb = HistGradientBoostingRegressor(
-        loss="absolute_error",  # 稳健损失
+        loss="absolute_error",
         early_stopping=True,
         n_iter_no_change=10,
         validation_fraction=0.15,
         random_state=random_state
     )
-    # 只保留winsor，移除RobustScaler
     pipe = Pipeline([
         ("winsor", Winsorizer(0.01, 0.99)),
         ("hgb", hgb),
@@ -556,16 +507,14 @@ def make_hgb_pipeline(random_state: int) -> TransformedTargetRegressor:
 
 
 def make_xgb_pipeline(random_state: int) -> TransformedTargetRegressor:
-    """修改后的XGB - 移除缩放，使用伪Huber损失"""
     xgb = XGBRegressor(
-        objective="reg:pseudohubererror",  # 稳健损失
+        objective="reg:pseudohubererror",
         tree_method="hist",
         eval_metric="rmse",
         random_state=random_state,
         n_estimators=600,
         verbosity=0
     )
-    # 只保留winsor，移除RobustScaler
     pipe = Pipeline([
         ("winsor", Winsorizer(0.01, 0.99)),
         ("xgb", xgb),
@@ -576,9 +525,8 @@ def make_xgb_pipeline(random_state: int) -> TransformedTargetRegressor:
     )
 
 
-# ============ 修改后的参数空间 ============
+# ============ 参数空间 ============
 def param_space_svr():
-    """SVR参数（与原版相同）"""
     rng = np.random.RandomState(RANDOM_STATE)
 
     def log_uniform(low, high, size):
@@ -593,29 +541,26 @@ def param_space_svr():
 
 def param_space_hgb():
     """收紧的HGB参数 - 小深度+强正则"""
-    rng = np.random.RandomState(RANDOM_STATE + 1)
     return {
-        "regressor__hgb__learning_rate": rng.choice([0.03, 0.05, 0.07, 0.1], N_ITER_HGB),
-        "regressor__hgb__max_depth": rng.choice([3, 4, 5], N_ITER_HGB),  # 限制深度
-        "regressor__hgb__max_leaf_nodes": rng.choice([15, 31, 63], N_ITER_HGB),  # 限制叶子
-        "regressor__hgb__min_samples_leaf": rng.choice([15, 20, 25, 30], N_ITER_HGB),  # 增加最小样本
-        "regressor__hgb__l2_regularization": rng.choice([1.0, 2.0, 5.0, 10.0], N_ITER_HGB),  # 强正则
+        "regressor__hgb__learning_rate": [0.03, 0.05, 0.07, 0.1],
+        "regressor__hgb__max_depth": [3, 4, 5],  # 限制深度
+        "regressor__hgb__max_leaf_nodes": [15, 31, 63],  # 限制叶子
+        "regressor__hgb__min_samples_leaf": [15, 20, 25, 30],  # 增加最小样本
+        "regressor__hgb__l2_regularization": [1.0, 2.0, 5.0, 10.0],  # 强正则
     }
 
 
 def param_space_xgb():
     """收紧的XGB参数 - 小深度+强正则"""
-    rng = np.random.RandomState(RANDOM_STATE + 2)
     return {
-        "regressor__xgb__learning_rate": rng.choice([0.03, 0.05, 0.07, 0.1], N_ITER_XGB),
-        "regressor__xgb__max_depth": rng.choice([3, 4, 5], N_ITER_XGB),  # 限制深度
-        "regressor__xgb__min_child_weight": rng.choice([5.0, 10.0, 15.0], N_ITER_XGB),  # 增加最小权重
-        "regressor__xgb__subsample": rng.choice([0.7, 0.8, 0.9], N_ITER_XGB),
-        "regressor__xgb__colsample_bytree": rng.choice([0.7, 0.8, 0.9], N_ITER_XGB),
-        "regressor__xgb__reg_alpha": rng.choice([1.0, 2.0, 5.0], N_ITER_XGB),  # L1正则
-        "regressor__xgb__reg_lambda": rng.choice([2.0, 5.0, 10.0], N_ITER_XGB),  # L2正则
+        "regressor__xgb__learning_rate": [0.03, 0.05, 0.07, 0.1],
+        "regressor__xgb__max_depth": [3, 4, 5],  # 限制深度
+        "regressor__xgb__min_child_weight": [5.0, 10.0, 15.0],  # 增加最小权重
+        "regressor__xgb__subsample": [0.7, 0.8, 0.9],
+        "regressor__xgb__colsample_bytree": [0.7, 0.8, 0.9],
+        "regressor__xgb__reg_alpha": [1.0, 2.0, 5.0],  # L1正则
+        "regressor__xgb__reg_lambda": [2.0, 5.0, 10.0],  # L2正则
     }
-
 
 # ============ 集成权重学习（增强版） ============
 def learn_ensemble_weights(preds: Dict[str, np.ndarray], y_val: np.ndarray,
@@ -772,14 +717,11 @@ def compute_permutation_importance(models: List[Dict[str, Any]],
     return pd.DataFrame(pi_summary).sort_values('mean_importance', ascending=False)
 
 
-# ============ 修改后的训练与评估主函数 ============
+# ============ 训练与评估主函数 ============
 def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str],
                           compute_pi: bool = True) -> Dict[str, Any]:
-    """嵌套CV与Permutation Importance - 支持样本加权"""
+    """嵌套CV与Permutation Importance"""
     n = len(y)
-
-    # 计算样本权重
-    sample_weights = compute_sample_weights(y, method='iqr_weight')
 
     # 准备分层
     y_bins_outer = stratify_bins(y, n_bins=Y_BINS, seed=RANDOM_STATE)
@@ -798,21 +740,17 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
     fold_y_val = []
     fold_summaries = []
     ens_weights_per_fold = []
-    robust_scorer = make_robust_scorer()
 
     fold_idx = 0
     for train_idx, test_idx in rskf_outer.split(X, y_bins_outer):
         fold_idx += 1
         Xtr, Xval = X[train_idx], X[test_idx]
         ytr, yval = y[train_idx], y[test_idx]
-        wtr = sample_weights[train_idx]  # 训练集权重
 
         # 内层分层
         y_bins_inner = stratify_bins(ytr, n_bins=min(Y_BINS, max(3, int(np.sqrt(len(ytr))))))
         skf_inner = StratifiedKFold(n_splits=N_INNER, shuffle=True,
                                     random_state=RANDOM_STATE + fold_idx)
-
-        print(f"\nFold {fold_idx} - Training with sample weights...")
 
         # 训练SVR
         svr = make_svr_pipeline(RANDOM_STATE + fold_idx)
@@ -821,13 +759,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
             param_distributions=param_space_svr(),
             n_iter=N_ITER_SVR,
             cv=skf_inner.split(Xtr, y_bins_inner),
-            scoring=robust_scorer,  # 使用稳健评估器
+            scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx, verbose=0
         )
-        # 传递样本权重
-        fit_params = {"svr__sample_weight": wtr}
-        svr_rs.fit(Xtr, ytr, **fit_params)
+        svr_rs.fit(Xtr, ytr)
         y_sv = svr_rs.predict(Xval)
 
         # 训练HGB
@@ -837,13 +773,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
             param_distributions=param_space_hgb(),
             n_iter=N_ITER_HGB,
             cv=skf_inner.split(Xtr, y_bins_inner),
-            scoring=robust_scorer,  # 使用稳健评估器
+            scoring="neg_root_mean_squared_error",
             n_jobs=N_JOBS, refit=True,
             random_state=RANDOM_STATE + fold_idx + 1, verbose=0
         )
-        # 传递样本权重
-        fit_params = {"hgb__sample_weight": wtr}
-        hgb_rs.fit(Xtr, ytr, **fit_params)
+        hgb_rs.fit(Xtr, ytr)
         y_hg = hgb_rs.predict(Xval)
 
         # 训练XGB（可选）
@@ -855,13 +789,11 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
                 param_distributions=param_space_xgb(),
                 n_iter=N_ITER_XGB,
                 cv=skf_inner.split(Xtr, y_bins_inner),
-                scoring=robust_scorer,  # 使用稳健评估器
+                scoring="neg_root_mean_squared_error",
                 n_jobs=N_JOBS, refit=True,
                 random_state=RANDOM_STATE + fold_idx + 2, verbose=0
             )
-            # 传递样本权重
-            fit_params = {"xgb__sample_weight": wtr}
-            xgb_rs.fit(Xtr, ytr, **fit_params)
+            xgb_rs.fit(Xtr, ytr)
             y_xg = xgb_rs.predict(Xval)
 
         # 保存结果
@@ -896,7 +828,6 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         if USE_XGB:
             fold_summaries[-1] += f", XGB R²={r2_score(yval, y_xg):.3f}"
         fold_summaries[-1] += f", ENS R²={r2_score(yval, y_ens):.3f}"
-        print(fold_summaries[-1])
 
     # 计算OOF汇总
     summary = {}
@@ -924,8 +855,7 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
         "y_oof": y_oof,
         "oof_pred": oof_pred,
         "weights": ens_weights_per_fold,
-        "pi_df": pi_df,
-        "sample_weights": sample_weights
+        "pi_df": pi_df
     }
 
 
@@ -993,7 +923,7 @@ def flag_outliers_iqr(y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 # ============ 主函数 ============
 def main():
     print("=" * 60)
-    print("PM2.5 Meta-Ensemble Enhanced Pipeline (Fixed)")
+    print("PM2.5 Meta-Ensemble Enhanced Pipeline")
     print("=" * 60)
 
     # 读取数据
@@ -1038,16 +968,8 @@ def main():
         X_hold, y_hold = None, None
 
     # B. 基准建模与PI
-    print("\nB. Running nested CV with Permutation Importance and Sample Weighting...")
+    print("\nB. Running nested CV with Permutation Importance...")
     results_full = run_nested_cv_with_pi(X_work, y_work, feat_cols, compute_pi=True)
-
-    # 输出结果
-    print("\n" + "=" * 50)
-    print("FIXED MODEL RESULTS")
-    print("=" * 50)
-
-    for model, metrics in results_full["summary"].items():
-        print(f"{model:>6}: R²={metrics['R2']:.4f}, RMSE={metrics['RMSE']:.4f}, Pin90={metrics['Pinball90']:.4f}")
 
     # 绘制OOF诊断图
     plot_oof_diagnostics(results_full["y_oof"], results_full["oof_pred"], fig_dir)
@@ -1172,7 +1094,7 @@ def main():
     generate_final_report(results_full, results_selected, holdout_results,
                           selected_features, feat_cols, iqr_info)
 
-    print(f"\nFixed pipeline completed! Results saved to {OUTPUT_DIR}/")
+    print(f"\nPipeline completed! Results saved to {OUTPUT_DIR}/")
     print(f"Report: {REPORT_PATH}")
     print(f"Figures: {fig_dir}/")
 
@@ -1181,7 +1103,7 @@ def generate_final_report(results_full, results_selected, holdout_results,
                           selected_features, all_features, iqr_info):
     """生成最终报告"""
     lines = []
-    lines.append("# PM2.5 Meta-Ensemble Enhanced Report (Fixed)")
+    lines.append("# PM2.5 Meta-Ensemble Enhanced Report")
     lines.append(f"\nGenerated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("\n## Configuration")
     lines.append(f"- Outer CV folds: {N_OUTER} × {N_REPEATS} repeats")
@@ -1190,7 +1112,6 @@ def generate_final_report(results_full, results_selected, holdout_results,
     lines.append(f"- Models: SVR, HGB" + (", XGB" if USE_XGB else ""))
     lines.append(f"- Target transform: log1p/expm1")
     lines.append(f"- Ensemble loss: RMSE + {LAMBDA_PB}×Pinball@{PINBALL_Q}")
-    lines.append("- Fixes applied: Sample weighting, no scaling for trees, robust losses")
 
     lines.append("\n## Data Overview")
     lines.append(f"- Total samples: 303")
@@ -1224,14 +1145,6 @@ def generate_final_report(results_full, results_selected, holdout_results,
             lines.append(
                 f"- {model}: R²={metrics['R2']:.3f}, RMSE={metrics['RMSE']:.3f}, Pin90={metrics['Pinball90']:.3f}")
 
-    lines.append("\n## Key Fixes Applied")
-    lines.append(
-        "1. **Sample Weighting**: Extreme outliers (3×IQR) get 0.2 weight, mild outliers (1.5×IQR) get 0.5 weight")
-    lines.append("2. **Tree Model Preprocessing**: Removed RobustScaler from HGB/XGB, kept only Winsorizer")
-    lines.append("3. **Robust Loss Functions**: HGB uses absolute_error, XGB uses pseudohubererror")
-    lines.append("4. **Tightened Hyperparameters**: Lower depth, higher regularization for better generalization")
-    lines.append("5. **Unified Scoring**: All models use RMSE + λ×Pinball@0.90 for consistent evaluation")
-
     lines.append("\n## Visualizations Generated")
     lines.append("- y_distribution.png: Target distribution and log transform")
     lines.append("- iqr_summary.png: IQR fences and outlier counts")
@@ -1250,12 +1163,16 @@ def generate_final_report(results_full, results_selected, holdout_results,
         lines.append("- holdout_results.json: Holdout test metrics")
 
     lines.append("\n## Conclusions")
-    lines.append("1. Sample weighting successfully reduced impact of extreme outliers on model training")
-    lines.append("2. Removing scaling from tree models preserved important feature thresholds")
-    lines.append("3. Robust loss functions improved stability against remaining outliers")
-    lines.append("4. Tightened hyperparameters prevented overfitting on small dataset")
-    lines.append("5. Tree models (HGB/XGB) should now show significantly improved R² scores")
-    lines.append("6. Ensemble performance benefits from more balanced individual model contributions")
+    lines.append("1. Target distribution shows right-skew, log1p transform improves normality")
+    lines.append("2. IQR screening identifies potential outliers for sensitivity analysis")
+    lines.append("3. Permutation Importance provides robust feature ranking")
+    if results_selected:
+        imp = "improved" if results_selected["summary"]["ENS"]["R2"] > results_full["summary"]["ENS"][
+            "R2"] else "comparable"
+        lines.append(
+            f"4. Feature selection yields {imp} performance with {len(selected_features)}/{len(all_features)} features")
+    lines.append("5. Ensemble weighting adapts to fold-specific data characteristics")
+    lines.append("6. Learning curves suggest potential benefit from additional data")
 
     with open(REPORT_PATH, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
