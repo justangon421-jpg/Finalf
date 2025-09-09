@@ -45,6 +45,7 @@ from sklearn.linear_model import Ridge, ElasticNet
 from sklearn.metrics import r2_score, mean_squared_error, mean_pinball_loss, make_scorer
 from sklearn.utils.validation import check_random_state
 from sklearn.inspection import permutation_importance
+from sklearn.impute import SimpleImputer
 
 # Advanced imports
 try:
@@ -120,8 +121,8 @@ else:
 
 # Feature selection
 RFECV_STEP = 2  # Remove 2 features at a time
-MIN_FEATURES_KEEP = 10
-TOP_K_FEATURES = 20
+MIN_FEATURES_KEEP = 5
+TOP_K_FEATURES = 10
 
 # Target transform
 TARGET_TRANSFORM = "yeo-johnson"  # "log1p", "box-cox", "yeo-johnson"
@@ -290,8 +291,7 @@ def make_xgb_pipeline(random_state: int) -> Pipeline:
         objective="reg:squarederror",
         tree_method="hist",
         random_state=random_state,
-        n_estimators=1000,
-        early_stopping_rounds=50
+        n_estimators=1000
     )
     return Pipeline([("pre", pre), ("xgb", xgb)])
 
@@ -320,47 +320,49 @@ def get_param_space_bayesian():
 
     # SVR space
     spaces['svr'] = {
-        'svr__C': Real(0.01, 1000, prior='log-uniform'),
-        'svr__gamma': Real(1e-5, 1, prior='log-uniform'),
-        'svr__epsilon': Real(1e-4, 1, prior='log-uniform'),
-        'svr__kernel': Categorical(['rbf', 'poly']),
-        'svr__degree': Integer(2, 5),
+        'regressor__svr__C': Real(0.01, 1000, prior='log-uniform'),
+        'regressor__svr__gamma': Real(1e-5, 1, prior='log-uniform'),
+        'regressor__svr__epsilon': Real(1e-4, 1, prior='log-uniform'),
+        'regressor__svr__kernel': Categorical(['rbf', 'poly']),
+        'regressor__svr__degree': Integer(2, 5),
     }
+
 
     # HGB space
     spaces['hgb'] = {
-        'hgb__learning_rate': Real(0.01, 0.3, prior='uniform'),
-        'hgb__max_depth': Integer(3, 10),
-        'hgb__max_leaf_nodes': Integer(15, 255),
-        'hgb__min_samples_leaf': Integer(5, 50),
-        'hgb__l2_regularization': Real(0, 5, prior='uniform'),
-        'hgb__max_iter': Integer(100, 500),
+        'regressor__hgb__learning_rate': Real(0.01, 0.3, prior='uniform'),
+        'regressor__hgb__max_depth': Integer(3, 10),
+        'regressor__hgb__max_leaf_nodes': Integer(15, 255),
+        'regressor__hgb__min_samples_leaf': Integer(5, 50),
+        'regressor__hgb__l2_regularization': Real(0, 5, prior='uniform'),
+        'regressor__hgb__max_iter': Integer(100, 500),
     }
+
 
     # XGB space
     if USE_XGB:
         spaces['xgb'] = {
-            'xgb__learning_rate': Real(0.01, 0.3, prior='uniform'),
-            'xgb__max_depth': Integer(2, 10),
-            'xgb__min_child_weight': Real(0.5, 10, prior='uniform'),
-            'xgb__subsample': Real(0.5, 1.0, prior='uniform'),
-            'xgb__colsample_bytree': Real(0.5, 1.0, prior='uniform'),
-            'xgb__reg_lambda': Real(0, 10, prior='uniform'),
-            'xgb__reg_alpha': Real(0, 10, prior='uniform'),
-            'xgb__gamma': Real(0, 5, prior='uniform'),
+            'regressor__xgb__learning_rate': Real(0.01, 0.3, prior='uniform'),
+            'regressor__xgb__max_depth': Integer(2, 10),
+            'regressor__xgb__min_child_weight': Real(0.5, 10, prior='uniform'),
+            'regressor__xgb__subsample': Real(0.5, 1.0, prior='uniform'),
+            'regressor__xgb__colsample_bytree': Real(0.5, 1.0, prior='uniform'),
+            'regressor__xgb__reg_lambda': Real(0, 10, prior='uniform'),
+            'regressor__xgb__reg_alpha': Real(0, 10, prior='uniform'),
+            'regressor__xgb__gamma': Real(0, 5, prior='uniform'),
         }
 
     # LightGBM space
     if USE_LGBM:
         spaces['lgbm'] = {
-            'lgbm__learning_rate': Real(0.01, 0.3, prior='uniform'),
-            'lgbm__num_leaves': Integer(15, 255),
-            'lgbm__max_depth': Integer(-1, 10),
-            'lgbm__min_child_samples': Integer(5, 50),
-            'lgbm__subsample': Real(0.5, 1.0, prior='uniform'),
-            'lgbm__colsample_bytree': Real(0.5, 1.0, prior='uniform'),
-            'lgbm__reg_lambda': Real(0, 10, prior='uniform'),
-            'lgbm__reg_alpha': Real(0, 10, prior='uniform'),
+            'regressor__lgbm__learning_rate': Real(0.01, 0.3, prior='uniform'),
+            'regressor__lgbm__num_leaves': Integer(15, 255),
+            'regressor__lgbm__max_depth': Integer(-1, 10),
+            'regressor__lgbm__min_child_samples': Integer(5, 50),
+            'regressor__lgbm__subsample': Real(0.5, 1.0, prior='uniform'),
+            'regressor__lgbm__colsample_bytree': Real(0.5, 1.0, prior='uniform'),
+            'regressor__lgbm__reg_lambda': Real(0, 10, prior='uniform'),
+            'regressor__lgbm__reg_alpha': Real(0, 10, prior='uniform'),
         }
 
     return spaces
@@ -368,52 +370,51 @@ def get_param_space_bayesian():
 
 def get_param_space_random():
     """Random search parameter spaces"""
-    rng = np.random.RandomState(RANDOM_STATE)
     spaces = {}
 
     # SVR
     spaces['svr'] = {
-        'svr__C': np.logspace(-2, 3, 100),
-        'svr__gamma': np.logspace(-5, 0, 100),
-        'svr__epsilon': np.logspace(-4, 0, 50),
-        'svr__kernel': ['rbf', 'poly'],
-        'svr__degree': [2, 3, 4, 5],
+        'regressor__svr__C': stats.loguniform(1e-2, 1e3),
+        'regressor__svr__gamma': stats.loguniform(1e-5, 1),
+        'regressor__svr__epsilon': stats.loguniform(1e-4, 1),
+        'regressor__svr__kernel': ['rbf', 'poly'],
+        'regressor__svr__degree': [2, 3, 4, 5],
     }
 
     # HGB
     spaces['hgb'] = {
-        'hgb__learning_rate': np.linspace(0.01, 0.3, 30),
-        'hgb__max_depth': [None, 3, 4, 5, 6, 7, 8, 9, 10],
-        'hgb__max_leaf_nodes': [15, 31, 63, 127, 255],
-        'hgb__min_samples_leaf': [5, 10, 15, 20, 30, 50],
-        'hgb__l2_regularization': np.linspace(0, 5, 20),
-        'hgb__max_iter': [100, 200, 300, 500],
+        'regressor__hgb__learning_rate': stats.uniform(0.01, 0.29),
+        'regressor__hgb__max_depth': [None, 3, 4, 5, 6, 7, 8, 9, 10],
+        'regressor__hgb__max_leaf_nodes': stats.randint(15, 256),
+        'regressor__hgb__min_samples_leaf': stats.randint(5, 51),
+        'regressor__hgb__l2_regularization': stats.uniform(0, 5),
+        'regressor__hgb__max_iter': stats.randint(100, 501),
     }
 
     # XGB
     if USE_XGB:
         spaces['xgb'] = {
-            'xgb__learning_rate': np.linspace(0.01, 0.3, 30),
-            'xgb__max_depth': list(range(2, 11)),
-            'xgb__min_child_weight': np.linspace(0.5, 10, 20),
-            'xgb__subsample': np.linspace(0.5, 1.0, 11),
-            'xgb__colsample_bytree': np.linspace(0.5, 1.0, 11),
-            'xgb__reg_lambda': np.linspace(0, 10, 20),
-            'xgb__reg_alpha': np.linspace(0, 10, 20),
-            'xgb__gamma': np.linspace(0, 5, 20),
+            'regressor__xgb__learning_rate': stats.uniform(0.01, 0.29),
+            'regressor__xgb__max_depth': stats.randint(2, 11),
+            'regressor__xgb__min_child_weight': stats.uniform(0.5, 9.5),
+            'regressor__xgb__subsample': stats.uniform(0.5, 0.5),
+            'regressor__xgb__colsample_bytree': stats.uniform(0.5, 0.5),
+            'regressor__xgb__reg_lambda': stats.uniform(0, 10),
+            'regressor__xgb__reg_alpha': stats.uniform(0, 10),
+            'regressor__xgb__gamma': stats.uniform(0, 5),
         }
 
     # LightGBM
     if USE_LGBM:
         spaces['lgbm'] = {
-            'lgbm__learning_rate': np.linspace(0.01, 0.3, 30),
-            'lgbm__num_leaves': list(range(15, 256, 20)),
-            'lgbm__max_depth': [-1] + list(range(3, 11)),
-            'lgbm__min_child_samples': [5, 10, 15, 20, 30, 50],
-            'lgbm__subsample': np.linspace(0.5, 1.0, 11),
-            'lgbm__colsample_bytree': np.linspace(0.5, 1.0, 11),
-            'lgbm__reg_lambda': np.linspace(0, 10, 20),
-            'lgbm__reg_alpha': np.linspace(0, 10, 20),
+            'regressor__lgbm__learning_rate': stats.uniform(0.01, 0.29),
+            'regressor__lgbm__num_leaves': stats.randint(15, 256),
+            'regressor__lgbm__max_depth': [-1] + list(range(3, 11)),
+            'regressor__lgbm__min_child_samples': stats.randint(5, 51),
+            'regressor__lgbm__subsample': stats.uniform(0.5, 0.5),
+            'regressor__lgbm__colsample_bytree': stats.uniform(0.5, 0.5),
+            'regressor__lgbm__reg_lambda': stats.uniform(0, 10),
+            'regressor__lgbm__reg_alpha': stats.uniform(0, 10),
         }
 
     return spaces
@@ -539,8 +540,11 @@ def create_stacking_ensemble(X_train, y_train, random_state=42):
         )
         base_models.append(('lgbm', lgbm))
 
-    # Meta-learner
-    meta_learner = Ridge(alpha=1.0, random_state=random_state)
+    # Meta-learner with NaN-safe preprocessing
+    meta_learner = Pipeline([
+        ("impute", SimpleImputer(strategy="mean")),
+        ("ridge", Ridge(alpha=1.0, random_state=random_state)),
+    ])
 
     # Create stacking ensemble
     stacking = StackingRegressor(
@@ -560,11 +564,22 @@ def train_single_model(model, param_space, X_train, y_train, model_name, random_
 
     cv = KFold(n_splits=5, shuffle=True, random_state=random_state)
 
+    model_name_lower = model_name.lower()
+
+    if 'svr' in model_name_lower:
+        n_iter = N_ITER_SVR
+    elif 'xgb' in model_name_lower:
+        n_iter = N_ITER_XGB
+    elif 'lgbm' in model_name_lower:
+        n_iter = N_ITER_LGBM
+    else:
+        n_iter = N_ITER_HGB
+
     if USE_BAYESIAN and HAVE_SKOPT:
         search = BayesSearchCV(
             model,
             param_space,
-            n_iter=N_ITER_SVR if 'svr' in model_name.lower() else N_ITER_HGB,
+            n_iter=n_iter,
             cv=cv,
             scoring='neg_mean_squared_error',
             n_jobs=N_JOBS,
@@ -572,7 +587,6 @@ def train_single_model(model, param_space, X_train, y_train, model_name, random_
             optimizer_kwargs={'base_estimator': 'GP'}
         )
     else:
-        n_iter = N_ITER_SVR if 'svr' in model_name.lower() else N_ITER_HGB
         search = RandomizedSearchCV(
             model,
             param_space,
@@ -814,11 +828,16 @@ def generate_visualizations(X, y, models, feature_names, output_dir):
         else:
             importances = np.zeros(len(feature_names))
     elif 'HGB' in models:
-        model = models['HGB']
-        if hasattr(model, 'regressor_'):
-            importances = model.regressor_.named_steps['hgb'].feature_importances_
-        else:
-            importances = np.zeros(len(feature_names))
+            model = models['HGB']
+            if hasattr(model, 'regressor_'):
+                hgb_step = model.regressor_.named_steps['hgb']
+                importances = (
+                    hgb_step.feature_importances_
+                    if hasattr(hgb_step, 'feature_importances_')
+                    else np.zeros(len(feature_names))
+                )
+            else:
+                importances = np.zeros(len(feature_names))
     else:
         importances = np.random.rand(len(feature_names))
 
