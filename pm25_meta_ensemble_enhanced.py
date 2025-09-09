@@ -826,7 +826,7 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
             random_state=RANDOM_STATE + fold_idx, verbose=0
         )
         # 传递样本权重
-        fit_params = {"regressor__svr__sample_weight": wtr}
+        fit_params = {"svr__sample_weight": wtr}
         svr_rs.fit(Xtr, ytr, **fit_params)
         y_sv = svr_rs.predict(Xval)
 
@@ -842,7 +842,7 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
             random_state=RANDOM_STATE + fold_idx + 1, verbose=0
         )
         # 传递样本权重
-        fit_params = {"regressor__hgb__sample_weight": wtr}
+        fit_params = {"hgb__sample_weight": wtr}
         hgb_rs.fit(Xtr, ytr, **fit_params)
         y_hg = hgb_rs.predict(Xval)
 
@@ -860,7 +860,7 @@ def run_nested_cv_with_pi(X: np.ndarray, y: np.ndarray, feature_names: List[str]
                 random_state=RANDOM_STATE + fold_idx + 2, verbose=0
             )
             # 传递样本权重
-            fit_params = {"regressor__xgb__sample_weight": wtr}
+            fit_params = {"xgb__sample_weight": wtr}
             xgb_rs.fit(Xtr, ytr, **fit_params)
             y_xg = xgb_rs.predict(Xval)
 
